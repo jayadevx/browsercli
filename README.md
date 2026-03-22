@@ -79,7 +79,7 @@ node browse.js <url> [options]
 
 ```bash
 # Read an article as clean text
-node browse.js "https://fathy.fr/carbonyl"
+node browse.js "https://news.ycombinator.com/" 
 
 # Get headlines from Google News (auto-detects RSS)
 node browse.js "https://news.google.com/rss/search?q=indian+stocks&hl=en-IN"
@@ -109,7 +109,7 @@ node browse.js "https://some-spa-app.com" --wait 5000
 node browse.js "https://example.com" --no-js
 
 # Pipe to less
-node browse.js "https://fathy.fr/carbonyl" | less
+node browse.js "https://news.ycombinator.com/"  | less
 
 # Pipe Markdown to glow
 node browse.js "https://en.wikipedia.org/wiki/Rust" -m markdown | glow -
