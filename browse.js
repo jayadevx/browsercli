@@ -20,7 +20,7 @@ import { chromium } from 'playwright';
 import { Readability } from '@mozilla/readability';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import TurndownService from 'turndown';
-import { XMLParser } from 'fast-xml-parser';
+import xml2js from 'xml2js';
 import chalk from 'chalk';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
@@ -64,9 +64,8 @@ function isRSS(html) {
   return t.startsWith('<?xml') || t.includes('<rss') || t.includes('<feed') || t.includes('<atom');
 }
 
-function parseRSS(xml) {
-  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
-  const doc = parser.parse(xml);
+async function parseRSS(xml) {
+  const doc = await xml2js.parseStringPromise(xml, { explicitArray: false, mergeAttrs: true });
 
   // RSS 2.0
   if (doc.rss?.channel) {
@@ -76,33 +75,33 @@ function parseRSS(xml) {
       type: 'rss',
       title: ch.title || '',
       description: ch.description || '',
-      link: ch.link || '',
+      link: typeof ch.link === 'string' ? ch.link : '',
       items: items.map(i => ({
-        title:       stripCDATA(i.title || ''),
-        link:        stripCDATA(i.link || i.guid?.['#text'] || i.guid || ''),
-        source:      stripCDATA(i.source?.['#text'] || i.source || ''),
+        title:       i.title || '',
+        link:        i.link || i.guid?._ || i.guid || '',
+        source:      i.source?._ || i.source || '',
         pubDate:     i.pubDate || '',
-        description: stripCDATA(i.description || '').replace(/<[^>]+>/g, '').trim(),
+        description: (i.description || '').replace(/<[^>]+>/g, '').trim(),
       })),
     };
   }
 
-  // Atom / Google News feed
+  // Atom
   if (doc.feed) {
     const feed = doc.feed;
     const entries = [].concat(feed.entry || []);
     return {
       type: 'atom',
-      title: feed.title?.['#text'] || feed.title || '',
+      title: feed.title?._ || feed.title || '',
       items: entries.map(e => {
         const links = [].concat(e.link || []);
-        const altLink = links.find(l => l['@_rel'] === 'alternate') || links[0] || {};
+        const altLink = links.find(l => l.rel === 'alternate') || links[0] || {};
         return {
-          title:       e.title?.['#text'] || e.title || '',
-          link:        altLink['@_href'] || '',
-          source:      e.source?.title?.['#text'] || e.source?.title || '',
+          title:       e.title?._ || e.title || '',
+          link:        altLink.href || '',
+          source:      e.source?.title?._ || e.source?.title || '',
           pubDate:     e.updated || e.published || '',
-          description: stripCDATA(e.summary?.['#text'] || e.summary || '').replace(/<[^>]+>/g, '').trim(),
+          description: (e.summary?._ || e.summary || '').replace(/<[^>]+>/g, '').trim(),
         };
       }),
     };
@@ -111,9 +110,6 @@ function parseRSS(xml) {
   return null;
 }
 
-function stripCDATA(s) {
-  return String(s).replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim();
-}
 
 function formatDate(d) {
   if (!d) return '';
@@ -224,6 +220,14 @@ async function main() {
   log(chalk.dim(`  ▸ Loading: ${url}`));
 
   try {
+    // Capture raw response body (needed for RSS/XML which browsers wrap in HTML)
+    let rawResponseBody = null;
+    context.on('response', async response => {
+      if (response.url() === url || response.url().startsWith(url.split('?')[0])) {
+        try { rawResponseBody = await response.text(); } catch {}
+      }
+    });
+
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     if (argv.wait > 0) {
@@ -240,11 +244,12 @@ async function main() {
     const rawHtml = await page.content();
     const pageTitle = await page.title();
     const finalUrl = page.url();
+    const rawXml = rawResponseBody || rawHtml;
 
     // ── AUTO-DETECT RSS / ATOM ────────────────────────────────────────────
-    if (isRSS(rawHtml) || argv.mode === 'feed') {
+    if (isRSS(rawXml) || argv.mode === 'feed') {
       log(chalk.dim(`  ▸ RSS/Atom feed detected — parsing as feed...`));
-      const feed = parseRSS(rawHtml);
+      const feed = await parseRSS(rawXml);
 
       if (!feed) {
         log(chalk.red('  ✖  Could not parse feed structure'));
