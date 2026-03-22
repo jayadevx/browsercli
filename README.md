@@ -27,10 +27,12 @@ npm install
 # 3. Download Chromium (one-time, ~120MB)
 npx playwright install chromium
 
-# 4. Make executable
+# 4. npm install xml2js
+
+# 5. Make executable
 chmod +x browse.js
 
-# 5. (Optional) link globally
+# 6. (Optional) link globally
 npm link
 ```
 
